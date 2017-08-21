@@ -1,7 +1,4 @@
 FROM alpine:3.5
-MAINTAINER Thomas Boerger <thomas@webhippie.de>
-
-EXPOSE 22 3000
 
 RUN apk --no-cache add \
     su-exec \
@@ -26,14 +23,18 @@ RUN addgroup \
     git && \
   echo "git:$(dd if=/dev/urandom bs=24 count=1 status=none | base64)" | chpasswd
 
+COPY docker /
+COPY gitea /app/gitea/gitea
+COPY custom /app/gitea/custom
+
 ENV USER git
-ENV GITEA_CUSTOM /data/gitea
+ENV GITEA_CUSTOM /app/gitea/custom
 ENV GODEBUG=netdns=go
 
 VOLUME ["/data"]
 
+EXPOSE 22 3000
+
 ENTRYPOINT ["/usr/bin/entrypoint"]
 CMD ["/bin/s6-svscan", "/etc/s6"]
 
-COPY docker /
-COPY gitea /app/gitea/gitea

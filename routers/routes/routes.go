@@ -132,6 +132,8 @@ func RegisterRoutes(m *macaron.Macaron) {
 	ignSignIn := context.Toggle(&context.ToggleOptions{SignInRequired: setting.Service.RequireSignInView})
 	ignSignInAndCsrf := context.Toggle(&context.ToggleOptions{DisableCSRF: true})
 	reqSignOut := context.Toggle(&context.ToggleOptions{SignOutRequired: true})
+    // define a no sign-in required parameter
+	noreqSignIn := context.Toggle(&context.ToggleOptions{SignInRequired: false})
 
 	bindIgnErr := binding.BindIgnErr
 	validation.AddBindingRules()
@@ -159,7 +161,8 @@ func RegisterRoutes(m *macaron.Macaron) {
 	m.Head("/", func() string {
 		return ""
 	})
-	m.Get("/", ignSignIn, routers.Home)
+    // no routing here without sign-in requirement
+	m.Get("/", noreqSignIn, routers.Home)
 	m.Get("/swagger", ignSignIn, routers.Swagger)
 	m.Group("/explore", func() {
 		m.Get("", func(ctx *context.Context) {

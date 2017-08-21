@@ -1,6 +1,10 @@
 #!/bin/sh
 
-for FOLDER in /data/gitea/conf /data/gitea/log /data/git /data/ssh; do
+# for FOLDER in /data/gitea/conf /data/gitea/log /data/git /data/ssh; do
+#     mkdir -p ${FOLDER}
+# done
+
+for FOLDER in /data/gitea/log /data/git /data/ssh; do
     mkdir -p ${FOLDER}
 done
 
