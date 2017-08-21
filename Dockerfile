@@ -21,7 +21,7 @@ RUN addgroup \
     -u 1000 \
     -G git \
     git && \
-  echo "git:$(date +%s | sha256sum | base64 | head -c 32)" | chpasswd
+  echo "git:$(dd if=/dev/urandom bs=24 count=1 status=none | base64)" | chpasswd
 
 COPY docker /
 COPY gitea /app/gitea/gitea
