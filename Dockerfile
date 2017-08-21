@@ -28,7 +28,6 @@ COPY gitea /app/gitea/gitea
 COPY custom /app/gitea/custom
 
 ENV USER git
-# ENV GITEA_CUSTOM /data/gitea
 ENV GITEA_CUSTOM /app/gitea/custom
 ENV GODEBUG=netdns=go
 
