@@ -13,7 +13,7 @@ on the fork branch make sure you set: `git branch --set-remoteurl=upstream/maste
 
 ## Docs
 
-For more information and instructions about how to install Gitea please look at our [documentation](https://docs.gitea.io/en-us/). If you cannot find some specific information, then head over to our [Discord](https://discord.gg/NsatcWJ) server to chat with us or use the [forum](https://discourse.gitea.io/).
+For more information and instructions about how to install Gitea please look at our [documentation](https://docs.gitea.io/en-us/). If you cannot find some specific information, then head over to our [Discord server](https://discord.gg/NsatcWJ) or [Matrix room](https://matrix.to/#/#gitea:matrix.org) to chat with us or use the [forum](https://discourse.gitea.io/).
 
 ## Contributing
 
