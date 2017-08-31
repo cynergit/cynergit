@@ -13,15 +13,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-xorm/xorm"
-	gouuid "github.com/satori/go.uuid"
-
-	api "code.gitea.io/sdk/gitea"
-
 	"code.gitea.io/gitea/modules/httplib"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/sync"
+	api "code.gitea.io/sdk/gitea"
+
+	"github.com/go-xorm/xorm"
+	gouuid "github.com/satori/go.uuid"
 )
 
 // HookQueue is a global queue of web hooks
@@ -150,6 +149,15 @@ func (w *Webhook) GetSlackHook() *SlackMeta {
 	return s
 }
 
+// GetDiscordHook returns discord metadata
+func (w *Webhook) GetDiscordHook() *DiscordMeta {
+	s := &DiscordMeta{}
+	if err := json.Unmarshal([]byte(w.Meta), s); err != nil {
+		log.Error(4, "webhook.GetDiscordHook(%d): %v", w.ID, err)
+	}
+	return s
+}
+
 // History returns history of webhook by given conditions.
 func (w *Webhook) History(page int) ([]*HookTask, error) {
 	return HookTasks(w.ID, page)
@@ -213,6 +221,13 @@ func getWebhook(bean *Webhook) (*Webhook, error) {
 	return bean, nil
 }
 
+// GetWebhookByID returns webhook of repository by given ID.
+func GetWebhookByID(id int64) (*Webhook, error) {
+	return getWebhook(&Webhook{
+		ID: id,
+	})
+}
+
 // GetWebhookByRepoID returns webhook of repository by given ID.
 func GetWebhookByRepoID(repoID, id int64) (*Webhook, error) {
 	return getWebhook(&Webhook{
@@ -260,6 +275,12 @@ func GetWebhooksByOrgID(orgID int64) (ws []*Webhook, err error) {
 // UpdateWebhook updates information of webhook.
 func UpdateWebhook(w *Webhook) error {
 	_, err := x.Id(w.ID).AllCols().Update(w)
+	return err
+}
+
+// UpdateWebhookLastStatus updates last status of webhook.
+func UpdateWebhookLastStatus(w *Webhook) error {
+	_, err := x.ID(w.ID).Cols("last_status").Update(w)
 	return err
 }
 
@@ -314,12 +335,14 @@ const (
 	GOGS HookTaskType = iota + 1
 	SLACK
 	GITEA
+	DISCORD
 )
 
 var hookTaskTypes = map[string]HookTaskType{
-	"gitea": GITEA,
-	"gogs":  GOGS,
-	"slack": SLACK,
+	"gitea":   GITEA,
+	"gogs":    GOGS,
+	"slack":   SLACK,
+	"discord": DISCORD,
 }
 
 // ToHookTaskType returns HookTaskType by given name.
@@ -336,6 +359,8 @@ func (t HookTaskType) Name() string {
 		return "gogs"
 	case SLACK:
 		return "slack"
+	case DISCORD:
+		return "discord"
 	}
 	return ""
 }
@@ -470,6 +495,57 @@ func UpdateHookTask(t *HookTask) error {
 	return err
 }
 
+// PrepareWebhook adds special webhook to task queue for given payload.
+func PrepareWebhook(w *Webhook, repo *Repository, event HookEventType, p api.Payloader) error {
+	switch event {
+	case HookEventCreate:
+		if !w.HasCreateEvent() {
+			return nil
+		}
+	case HookEventPush:
+		if !w.HasPushEvent() {
+			return nil
+		}
+	case HookEventPullRequest:
+		if !w.HasPullRequestEvent() {
+			return nil
+		}
+	}
+
+	var payloader api.Payloader
+	var err error
+	// Use separate objects so modifications won't be made on payload on non-Gogs/Gitea type hooks.
+	switch w.HookTaskType {
+	case SLACK:
+		payloader, err = GetSlackPayload(p, event, w.Meta)
+		if err != nil {
+			return fmt.Errorf("GetSlackPayload: %v", err)
+		}
+	case DISCORD:
+		payloader, err = GetDiscordPayload(p, event, w.Meta)
+		if err != nil {
+			return fmt.Errorf("GetDiscordPayload: %v", err)
+		}
+	default:
+		p.SetSecret(w.Secret)
+		payloader = p
+	}
+
+	if err = CreateHookTask(&HookTask{
+		RepoID:      repo.ID,
+		HookID:      w.ID,
+		Type:        w.HookTaskType,
+		URL:         w.URL,
+		Payloader:   payloader,
+		ContentType: w.ContentType,
+		EventType:   event,
+		IsSSL:       w.IsSSL,
+	}); err != nil {
+		return fmt.Errorf("CreateHookTask: %v", err)
+	}
+	return nil
+}
+
 // PrepareWebhooks adds new webhooks to task queue for given payload.
 func PrepareWebhooks(repo *Repository, event HookEventType, p api.Payloader) error {
 	ws, err := GetActiveWebhooksByRepoID(repo.ID)
@@ -491,46 +567,9 @@ func PrepareWebhooks(repo *Repository, event HookEventType, p api.Payloader) err
 		return nil
 	}
 
-	var payloader api.Payloader
 	for _, w := range ws {
-		switch event {
-		case HookEventCreate:
-			if !w.HasCreateEvent() {
-				continue
-			}
-		case HookEventPush:
-			if !w.HasPushEvent() {
-				continue
-			}
-		case HookEventPullRequest:
-			if !w.HasPullRequestEvent() {
-				continue
-			}
-		}
-
-		// Use separate objects so modifications won't be made on payload on non-Gogs/Gitea type hooks.
-		switch w.HookTaskType {
-		case SLACK:
-			payloader, err = GetSlackPayload(p, event, w.Meta)
-			if err != nil {
-				return fmt.Errorf("GetSlackPayload: %v", err)
-			}
-		default:
-			p.SetSecret(w.Secret)
-			payloader = p
-		}
-
-		if err = CreateHookTask(&HookTask{
-			RepoID:      repo.ID,
-			HookID:      w.ID,
-			Type:        w.HookTaskType,
-			URL:         w.URL,
-			Payloader:   payloader,
-			ContentType: w.ContentType,
-			EventType:   event,
-			IsSSL:       w.IsSSL,
-		}); err != nil {
-			return fmt.Errorf("CreateHookTask: %v", err)
+		if err = PrepareWebhook(w, repo, event, p); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -577,7 +616,7 @@ func (t *HookTask) deliver() {
 		}
 
 		// Update webhook last delivery status.
-		w, err := GetWebhookByRepoID(t.RepoID, t.HookID)
+		w, err := GetWebhookByID(t.HookID)
 		if err != nil {
 			log.Error(5, "GetWebhookByID: %v", err)
 			return
@@ -587,8 +626,8 @@ func (t *HookTask) deliver() {
 		} else {
 			w.LastStatus = HookStatusFail
 		}
-		if err = UpdateWebhook(w); err != nil {
-			log.Error(5, "UpdateWebhook: %v", err)
+		if err = UpdateWebhookLastStatus(w); err != nil {
+			log.Error(5, "UpdateWebhookLastStatus: %v", err)
 			return
 		}
 	}()
